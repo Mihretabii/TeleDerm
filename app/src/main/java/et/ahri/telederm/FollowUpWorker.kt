@@ -1,10 +1,9 @@
 package et.ahri.telederm
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
-import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
-import et.ahri.telederm.data.AppDatabase
 import kotlinx.coroutines.flow.first
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -15,40 +14,42 @@ class FollowUpWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val database = AppDatabase.getDatabase(applicationContext)
-        val caseDao = database.patientCaseDao()
-        val cases = caseDao.getAllCases().first()
+        return try {
+            val firebaseManager = FirebaseManager
+            // Fetch cases directly from Firebase for follow-up reminders
+            val cases = firebaseManager.getAllCases().first()
 
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val today = Calendar.getInstance()
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val today = Calendar.getInstance()
 
-        cases.forEach { patientCase ->
-            // Automated reminders for follow-up (30, 60, 90, 180 days)
-            // Reminders are relevant for both Dermatologists and Health Workers
-            if (patientCase.status == "Reviewed" || patientCase.status == "Referred") {
-                try {
-                    val visitDateStr = patientCase.visitDate
-                    val visitDate = sdf.parse(visitDateStr)
-                    if (visitDate != null) {
-                        val diffInMillis = today.timeInMillis - visitDate.time
-                        val diffInDays = TimeUnit.MILLISECONDS.toDays(diffInMillis).toInt()
+            cases.forEach { patientCase ->
+                if (patientCase.status == "Reviewed" || patientCase.status == "Referred") {
+                    try {
+                        val visitDateStr = patientCase.visitDate
+                        val visitDate = sdf.parse(visitDateStr)
+                        if (visitDate != null) {
+                            val diffInMillis = today.timeInMillis - visitDate.time
+                            val diffInDays = TimeUnit.MILLISECONDS.toDays(diffInMillis).toInt()
 
-                        val intervals = listOf(30, 60, 90, 180)
-                        if (intervals.contains(diffInDays)) {
-                            NotificationHelper.showNotification(
-                                applicationContext,
-                                "Follow-up Reminder",
-                                "Case #${patientCase.patientId} reached Day $diffInDays. Please review patient progress.",
-                                patientCase.id
-                            )
+                            val intervals = listOf(30, 60, 90, 180)
+                            if (intervals.contains(diffInDays)) {
+                                NotificationHelper.showNotification(
+                                    applicationContext,
+                                    "Follow-up Reminder",
+                                    "Case #${patientCase.patientId} reached Day $diffInDays. Please review patient progress.",
+                                    patientCase.patientId.hashCode() // Use patientId hash since we don't use Room ID anymore
+                                )
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.e("FollowUpWorker", "Error processing case #${patientCase.patientId}", e)
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
             }
+            Result.success()
+        } catch (e: Exception) {
+            Log.e("FollowUpWorker", "Worker execution failed", e)
+            Result.retry()
         }
-
-        return Result.success()
     }
 }

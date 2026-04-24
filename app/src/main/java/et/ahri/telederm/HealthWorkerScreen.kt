@@ -13,6 +13,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,13 +25,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.AlertDialog
@@ -39,6 +43,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Divider
@@ -98,6 +103,7 @@ fun HealthWorkerScreen(
     onLogout: () -> Unit
 ) {
     val cases by patientViewModel.allCases.collectAsState(initial = emptyList())
+    val currentUser by authViewModel.currentUser.collectAsState()
     
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("Submit Case", "My Cases", "Settings")
@@ -136,8 +142,8 @@ fun HealthWorkerScreen(
             }
 
             when (selectedTab) {
-                0 -> SubmitCaseTab(patientViewModel)
-                1 -> MyCasesTab(patientViewModel, cases)
+                0 -> SubmitCaseTab(patientViewModel, currentUser?.email ?: "unknown")
+                1 -> MyCasesTab(patientViewModel, currentUser?.email ?: "unknown", cases)
                 2 -> UserSettingsTab(authViewModel)
             }
         }
@@ -146,7 +152,7 @@ fun HealthWorkerScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SubmitCaseTab(viewModel: PatientViewModel) {
+fun SubmitCaseTab(viewModel: PatientViewModel, userEmail: String) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
@@ -171,21 +177,46 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
 
     var lesionDuration by remember { mutableStateOf("") }
     var exposureHistory by remember { mutableStateOf("") }
+    
     var lesionType by remember { mutableStateOf("") }
+    var lesionTypeOther by remember { mutableStateOf("") }
+    
     var numLesions by remember { mutableStateOf("") }
 
-    val lesionLocations = listOf("Face", "Arm", "Leg", "Trunk", "Hand", "Foot", "Scalp", "Neck")
+    val lesionLocations = listOf("Face", "Arm", "Leg", "Trunk", "Hand", "Foot", "Scalp", "Neck", "Other")
     var selectedLocations by remember { mutableStateOf(setOf<String>()) }
+    var lesionLocationOther by remember { mutableStateOf("") }
     
     var lesionSize by remember { mutableStateOf("") }
     var painLevel by remember { mutableStateOf("") }
+    
     var prevTreatment by remember { mutableStateOf("") }
+    var prevTreatmentOther by remember { mutableStateOf("") }
+    
     var associatedSymptoms by remember { mutableStateOf("") }
     var comorbidities by remember { mutableStateOf("") }
     var additionalNotes by remember { mutableStateOf("") }
 
     var capturedImages by remember { mutableStateOf(listOf<Uri>()) }
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    var enlargedImageUri by remember { mutableStateOf<String?>(null) }
+    
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    if (errorDialogMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorDialogMessage = null },
+            title = { Text("Submission Error") },
+            text = { Text(errorDialogMessage!!) },
+            confirmButton = {
+                Button(onClick = { errorDialogMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     val healthWorkerTypes = listOf(
         "Health Extension Workers (HEWs)",
@@ -291,6 +322,10 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
         )
     }
 
+    if (enlargedImageUri != null) {
+        EnlargedImageDialog(imageUrl = enlargedImageUri!!, onDismiss = { enlargedImageUri = null })
+    }
+
     var showDatePicker by remember { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState()
 
@@ -363,14 +398,14 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
                 onValueChange = { patientAge = it },
                 label = { Text("Age ($ageUnit) *") },
                 placeholder = { Text("Age in $ageUnit") },
-                modifier = Modifier.weight(1f), 
+                modifier = Modifier.weight(1f),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
             DropdownField(
                 label = "Sex *", 
                 options = listOf("Male", "Female"), 
                 selectedOption = patientSex,
-                onOptionSelected = { selectedVal: String -> patientSex = selectedVal }, 
+                onOptionSelected = { selectedVal: String -> patientSex = selectedVal },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -404,7 +439,7 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(top = 8.dp)
         )
-        
+
         DropdownField(
             label = "Federal *",
             options = AdminHierarchy.federal,
@@ -512,38 +547,49 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
             )
 
             OutlinedTextField(
-                value = lesionDuration, 
-                onValueChange = { lesionDuration = it }, 
-                label = { Text("Duration of Lesion *") }, 
+                value = lesionDuration,
+                onValueChange = { lesionDuration = it },
+                label = { Text("Duration of Lesion *") },
                 placeholder = { Text("e.g., 3 weeks, 2 months") },
                 modifier = Modifier.fillMaxWidth()
             )
 
             OutlinedTextField(
-                value = exposureHistory, 
-                onValueChange = { exposureHistory = it }, 
+                value = exposureHistory,
+                onValueChange = { exposureHistory = it },
                 label = { Text("Exposure History (Travel History)") },
                 placeholder = { Text("e.g., Endemic area") },
                 modifier = Modifier.fillMaxWidth()
             )
             
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 DropdownField(
-                    label = "Lesion Type *", 
-                    options = listOf("Papule", "Nodule", "Ulcer", "Plaque", "Pustule", "Other"), 
+                    label = "Lesion Type *",
+                    options = listOf("Papule", "Nodule", "Ulcer", "Plaque", "Pustule", "Other"),
                     selectedOption = lesionType,
-                    onOptionSelected = { selectedVal: String -> lesionType = selectedVal }, 
-                    modifier = Modifier.weight(1f)
+                    onOptionSelected = { selectedVal: String -> 
+                        lesionType = selectedVal 
+                        if (selectedVal != "Other") lesionTypeOther = ""
+                    }
                 )
-                OutlinedTextField(
-                    value = numLesions, 
-                    onValueChange = { numLesions = it }, 
-                    label = { Text("Number of Lesions *") }, 
-                    placeholder = { Text("e.g., 1, 3, 5") },
-                    modifier = Modifier.weight(1f), 
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
+                if (lesionType == "Other") {
+                    OutlinedTextField(
+                        value = lesionTypeOther,
+                        onValueChange = { lesionTypeOther = it },
+                        label = { Text("Specify Other Lesion Type *") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    )
+                }
             }
+            
+            OutlinedTextField(
+                value = numLesions,
+                onValueChange = { numLesions = it },
+                label = { Text("Number of Lesions *") },
+                placeholder = { Text("e.g., 1, 3, 5") },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
 
             Text(
                 "Lesion Location (Checkboxes) *",
@@ -576,6 +622,14 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
                     }
                 }
             }
+            if (selectedLocations.contains("Other")) {
+                OutlinedTextField(
+                    value = lesionLocationOther,
+                    onValueChange = { lesionLocationOther = it },
+                    label = { Text("Specify Other Location *") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             OutlinedTextField(
                 value = lesionSize,
@@ -589,136 +643,178 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
             )
 
             DropdownField(
-                label = "Itching or Pain *", 
-                options = listOf("None", "Mild", "Moderate", "Severe"), 
+                label = "Itching or Pain *",
+                options = listOf("None", "Mild", "Moderate", "Severe"),
                 selectedOption = painLevel,
                 onOptionSelected = { selectedVal: String -> painLevel = selectedVal }
             )
-            
-            DropdownField(
-                label = "Previous Treatment",
-                options = listOf(
-                    "None",
-                    "Topical (Cream / Ointment) and Cryotherapy",
-                    "Systemic",
-                    "Both Topical & Systemic",
-                    "Traditional",
-                    "Other"
-                ),
-                selectedOption = prevTreatment,
-                onOptionSelected = { selectedVal: String -> prevTreatment = selectedVal }
-            )
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                DropdownField(
+                    label = "Previous Treatment",
+                    options = listOf(
+                        "None",
+                        "Topical (Cream / Ointment) and Cryotherapy",
+                        "Systemic",
+                        "Both Topical & Systemic",
+                        "Traditional",
+                        "Other"
+                    ),
+                    selectedOption = prevTreatment,
+                    onOptionSelected = { selectedVal: String -> 
+                        prevTreatment = selectedVal 
+                        if (selectedVal != "Other") prevTreatmentOther = ""
+                    }
+                )
+                if (prevTreatment == "Other") {
+                    OutlinedTextField(
+                        value = prevTreatmentOther,
+                        onValueChange = { prevTreatmentOther = it },
+                        label = { Text("Specify Other Previous Treatment") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    )
+                }
+            }
 
             OutlinedTextField(
-                value = comorbidities, 
-                onValueChange = { comorbidities = it }, 
-                label = { Text("Co-morbidities") }, 
+                value = comorbidities,
+                onValueChange = { comorbidities = it },
+                label = { Text("Co-morbidities") },
                 placeholder = { Text("e.g., Diabetes, HIV, Hypertension") },
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
-                value = additionalNotes, 
-                onValueChange = { additionalNotes = it }, 
-                label = { Text("Additional Notes") }, 
+                value = additionalNotes,
+                onValueChange = { additionalNotes = it },
+                label = { Text("Additional Notes") },
                 placeholder = { Text("Any other observations") },
-                modifier = Modifier.fillMaxWidth(), 
+                modifier = Modifier.fillMaxWidth(),
                 minLines = 3
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             Text("📸 Lesion Images", style = MaterialTheme.typography.titleMedium)
             Row(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { handleTakePhotoClick() }) { Text("📷 Take Photo") }
+                Button(onClick = { handleTakePhotoClick() }, enabled = !isSubmitting) { Text("📷 Take Photo") }
                 OutlinedButton(onClick = {
                     imagePickerLauncher.launch(
                         PickVisualMediaRequest(
                             ActivityResultContracts.PickVisualMedia.ImageOnly
                         )
                     )
-                }) { Text("📁 Pick Images") }
+                }, enabled = !isSubmitting) { Text("📁 Pick Images") }
             }
 
             if (capturedImages.isNotEmpty()) {
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp),
+                        .height(130.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(capturedImages) { uri ->
-                        Image(
-                            painter = rememberAsyncImagePainter(uri),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(120.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.LightGray),
-                            contentScale = ContentScale.Crop
-                        )
+                        Box {
+                            Image(
+                                painter = rememberAsyncImagePainter(uri),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(120.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.LightGray)
+                                    .clickable { enlargedImageUri = uri.toString() },
+                                contentScale = ContentScale.Crop
+                            )
+                            IconButton(
+                                onClick = { capturedImages = capturedImages - uri },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(32.dp)
+                                    .padding(4.dp)
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove Image",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            Button(
-                onClick = {
-                    if (patientId.isNotBlank() && phoneNumber.length == 13) {
-                        val newCase = PatientCase(
-                            patientId = patientId,
-                            visitDate = visitDate,
-                            age = patientAge,
-                            ageUnit = ageUnit,
-                            sex = patientSex,
-                            healthWorkerType = healthWorkerType,
-                            facility = healthFacility,
-                            facilityType = healthFacilityType,
-                            region = selectedRegion,
-                            zone = selectedZone,
-                            woreda = selectedWoreda,
-                            kebele = selectedKebele,
-                            residence = "$selectedRegion/$selectedZone/$selectedWoreda/$selectedKebele",
-                            phoneNumber = phoneNumber,
-                            lesionDuration = lesionDuration,
-                            exposureHistory = exposureHistory,
-                            lesionType = lesionType,
-                            numLesions = numLesions,
-                            lesionLocation = selectedLocations.joinToString(", "),
-                            lesionSize = lesionSize,
-                            painLevel = painLevel,
-                            prevTreatment = prevTreatment,
-                            associatedSymptoms = associatedSymptoms,
-                            comorbidities = comorbidities,
-                            additionalNotes = additionalNotes, 
-                            images = capturedImages.joinToString(",") { it.toString() }
-                        )
-                        viewModel.submitCase(newCase) { success ->
-                            if (success) {
-                                Toast.makeText(
-                                    context,
-                                    "✓ Case $patientId submitted!",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                patientId = ""; patientAge = ""; patientSex = ""; healthFacility =
-                                    ""; phoneNumber = "+251"
-                                consentObtained = false; selectedLocations =
-                                    emptySet(); capturedImages = emptyList()
-                            } else {
-                                Toast.makeText(context, "Submission Failed.", Toast.LENGTH_SHORT)
-                                    .show()
+
+            if (isSubmitting) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    CircularProgressIndicator()
+                    Text("Uploading images and submitting case...", style = MaterialTheme.typography.bodySmall)
+                }
+            } else {
+                Button(
+                    onClick = {
+                        if (patientId.isNotBlank() && phoneNumber.length == 13) {
+                            isSubmitting = true
+                            val newCase = PatientCase(
+                                patientId = patientId,
+                                visitDate = visitDate,
+                                age = patientAge,
+                                ageUnit = ageUnit,
+                                sex = patientSex,
+                                healthWorkerType = healthWorkerType,
+                                facility = healthFacility,
+                                facilityType = healthFacilityType,
+                                region = selectedRegion,
+                                zone = selectedZone,
+                                woreda = selectedWoreda,
+                                kebele = selectedKebele,
+                                residence = "$selectedRegion/$selectedZone/$selectedWoreda/$selectedKebele",
+                                phoneNumber = phoneNumber,
+                                lesionDuration = lesionDuration,
+                                exposureHistory = exposureHistory,
+                                lesionType = lesionType,
+                                lesionTypeOther = if (lesionType == "Other") lesionTypeOther else null,
+                                numLesions = numLesions,
+                                lesionLocation = selectedLocations.joinToString(", "),
+                                lesionLocationOther = if (selectedLocations.contains("Other")) lesionLocationOther else null,
+                                lesionSize = lesionSize,
+                                painLevel = painLevel,
+                                prevTreatment = prevTreatment,
+                                prevTreatmentOther = if (prevTreatment == "Other") prevTreatmentOther else null,
+                                associatedSymptoms = associatedSymptoms,
+                                comorbidities = comorbidities,
+                                additionalNotes = additionalNotes
+                            )
+                            viewModel.submitCase(userEmail, newCase, capturedImages) { success, error ->
+                                isSubmitting = false
+                                if (success) {
+                                    Toast.makeText(
+                                        context,
+                                        "✓ Case $patientId submitted!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    // Reset fields
+                                    patientId = ""; patientAge = ""; patientSex = ""; healthFacility = ""; healthFacilityType = ""
+                                    healthWorkerType = ""; selectedRegion = ""; selectedZone = ""; selectedWoreda = ""; selectedKebele = ""
+                                    phoneNumber = "+251"; consentObtained = false; selectedLocations = emptySet()
+                                    capturedImages = emptyList(); lesionDuration = ""; exposureHistory = ""; lesionType = ""
+                                    lesionTypeOther = ""; prevTreatmentOther = ""; lesionLocationOther = ""
+                                    numLesions = ""; lesionSize = ""; painLevel = ""; prevTreatment = ""; associatedSymptoms = ""
+                                    comorbidities = ""; additionalNotes = ""
+                                } else {
+                                    errorDialogMessage = error ?: "Submission Failed"
+                                }
                             }
+                        } else {
+                            Toast.makeText(context, "Please fill required fields", Toast.LENGTH_SHORT).show()
                         }
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "Please fill required fields (ID, Phone, etc).",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF208090))
-            ) {
-                Text("✓ Submit Case for Review")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF208090))
+                ) {
+                    Text("✓ Submit Case for Review")
+                }
             }
         }
     }
@@ -726,7 +822,7 @@ fun SubmitCaseTab(viewModel: PatientViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MyCasesTab(viewModel: PatientViewModel, cases: List<PatientCase>) {
+fun MyCasesTab(viewModel: PatientViewModel, userEmail: String, cases: List<PatientCase>) {
     var selectedCase by remember { mutableStateOf<PatientCase?>(null) }
     var filterStatus by remember { mutableStateOf("All") }
 
@@ -736,6 +832,7 @@ fun MyCasesTab(viewModel: PatientViewModel, cases: List<PatientCase>) {
     if (selectedCase != null) {
         CaseResponseDialog(
             viewModel,
+            userEmail = userEmail,
             patientCase = selectedCase!!,
             onDismiss = { selectedCase = null })
     }
@@ -789,34 +886,101 @@ fun MyCasesTab(viewModel: PatientViewModel, cases: List<PatientCase>) {
 @Composable
 fun CaseResponseDialog(
     viewModel: PatientViewModel,
+    userEmail: String,
     patientCase: PatientCase,
     onDismiss: () -> Unit
 ) {
     var showFollowUpForm by remember { mutableStateOf(false) }
+    var enlargedImageUri by remember { mutableStateOf<String?>(null) }
     
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    if (errorDialogMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorDialogMessage = null },
+            title = { Text("Error") },
+            text = { Text(errorDialogMessage!!) },
+            confirmButton = {
+                Button(onClick = { errorDialogMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (enlargedImageUri != null) {
+        EnlargedImageDialog(imageUrl = enlargedImageUri!!, onDismiss = { enlargedImageUri = null })
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Dermatologist Response: #${patientCase.patientId}") },
+        title = { Text("Case Details: #${patientCase.patientId}") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text("📋 Submitted Information", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                ResponseItem("Patient", "${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
+                ResponseItem("Facility", "${patientCase.facility} (${patientCase.facilityType})")
+                ResponseItem("HW Type", patientCase.healthWorkerType)
+                ResponseItem("Location", patientCase.residence)
+                ResponseItem("Visit Date", patientCase.visitDate)
+                ResponseItem("Phone", patientCase.phoneNumber)
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("🔍 Clinical Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                ResponseItem("Lesion Type", if (patientCase.lesionType == "Other") "Other: ${patientCase.lesionTypeOther ?: ""}" else patientCase.lesionType)
+                ResponseItem("Location", if (patientCase.lesionLocation.contains("Other")) "${patientCase.lesionLocation} (${patientCase.lesionLocationOther ?: ""})" else patientCase.lesionLocation)
+                ResponseItem("Duration", patientCase.lesionDuration)
+                ResponseItem("Exposure", patientCase.exposureHistory)
+                ResponseItem("Symptoms", patientCase.associatedSymptoms)
+                ResponseItem("Comorbidities", patientCase.comorbidities)
+                ResponseItem("Prev treatment", if (patientCase.prevTreatment == "Other") "Other: ${patientCase.prevTreatmentOther ?: ""}" else patientCase.prevTreatment)
+                ResponseItem("Notes", patientCase.additionalNotes)
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("🖼️ Submitted Images", fontWeight = FontWeight.Bold)
+                if (patientCase.images.isNotEmpty()) {
+                    val imageUrls = patientCase.images.split(",")
+                    LazyRow(modifier = Modifier.height(80.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(imageUrls) { url ->
+                            Image(
+                                painter = rememberAsyncImagePainter(url),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { enlargedImageUri = url }
+                                    .background(Color.LightGray),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+
+                Divider(Modifier.padding(vertical = 12.dp))
+
+                Text("🩺 Dermatologist Response", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 if (patientCase.status == "Pending") {
-                    Text("This case is still pending review.", color = Color.Gray)
+                    Text("This case is still pending review.", color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
                 } else {
                     ResponseItem("Status", patientCase.status, if(patientCase.status == "Reviewed") Color(0xFF22C55E) else Color(0xFFEF4444))
-                    Divider(Modifier.padding(vertical = 8.dp))
-                    ResponseItem("Primary Diagnosis", patientCase.diagnosis ?: "N/A")
+                    ResponseItem("Primary Diagnosis", if (patientCase.diagnosis == "Other") "Other: ${patientCase.diagnosisOther ?: ""}" else patientCase.diagnosis ?: "N/A")
                     ResponseItem("Differential Diagnoses", patientCase.differentialDiagnosis ?: "N/A")
-                    ResponseItem("Recommended Treatment", patientCase.treatmentType ?: "N/A")
+                    ResponseItem("Certainty", patientCase.certainty ?: "N/A")
+                    ResponseItem("Lab Needed", if(patientCase.labConfirmationNeeded) "Yes: ${patientCase.labTests ?: ""}" else "No")
+                    ResponseItem("Recommended Treatment", if (patientCase.treatmentType == "Other") "Other: ${patientCase.treatmentTypeOther ?: ""}" else patientCase.treatmentType ?: "N/A")
+                    ResponseItem("Dosage & Duration", if (patientCase.dosageDuration == "Other") "Other: ${patientCase.dosageDurationOther ?: ""}" else patientCase.dosageDuration ?: "N/A")
+                    ResponseItem("Follow-up Interval", "${patientCase.followUpInterval ?: ""} days")
+                    ResponseItem("Referral Needed", if(patientCase.isReferral) "Yes: ${patientCase.referralReason ?: ""}" else "No")
                     ResponseItem("Feedback", patientCase.feedback ?: "No feedback.")
 
-                    if (patientCase.updateFeedback != null) {
-                        Divider(Modifier.padding(vertical = 8.dp))
-                        Text(
-                            "Follow-up Feedback:",
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF208090)
-                        )
-                        Text(patientCase.updateFeedback)
+                    // Display all independent follow-ups
+                    if (patientCase.followUps != null && patientCase.followUps!!.isNotEmpty()) {
+                        patientCase.followUps!!.toSortedMap().forEach { (stage, data) ->
+                            Divider(Modifier.padding(vertical = 8.dp))
+                            Text("📈 Follow-up: $stage", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                            ResponseItem("Treatment Outcome", if(data["outcome"] == "Other") "Other: ${data["outcomeOther"] ?: ""}" else data["outcome"] ?: "")
+                            ResponseItem("Dermatologist Feedback", data["feedback"] ?: "Pending review...")
+                        }
                     }
 
                     if (!showFollowUpForm && !patientCase.isUpdatePending) {
@@ -829,26 +993,22 @@ fun CaseResponseDialog(
                         }
                     }
 
-                    if (patientCase.isUpdatePending) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "Progress update pending review...",
-                            color = Color.Gray,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-
                     if (showFollowUpForm) {
                         FollowUpForm(
-                            onSubmit = { stage, outcome ->
-                                viewModel.submitFollowUpUpdate(
-                                    patientCase.id,
+                            onSubmit = { stage, outcome, outcomeOther ->
+                                viewModel.submitFollowUpUpdateExtended(
+                                    userEmail,
+                                    patientCase.docId,
+                                    patientCase.patientId,
                                     stage,
-                                    outcome
-                                ) { success ->
+                                    outcome,
+                                    outcomeOther
+                                ) { success, error ->
                                     if (success) {
                                         showFollowUpForm = false
                                         onDismiss()
+                                    } else {
+                                        errorDialogMessage = error ?: "Connection error"
                                     }
                                 }
                             },
@@ -863,9 +1023,10 @@ fun CaseResponseDialog(
 }
 
 @Composable
-fun FollowUpForm(onSubmit: (String, String) -> Unit, onCancel: () -> Unit) {
+fun FollowUpForm(onSubmit: (String, String, String?) -> Unit, onCancel: () -> Unit) {
     var selectedStage by remember { mutableStateOf("") }
     var selectedOutcome by remember { mutableStateOf("") }
+    var outcomeOther by remember { mutableStateOf("") }
 
     val stages = listOf("Day 30", "Day 60", "Day 90", "Day 180")
     val outcomes = listOf("Healed", "Improving", "No Change", "Worsening", "Other")
@@ -878,7 +1039,19 @@ fun FollowUpForm(onSubmit: (String, String) -> Unit, onCancel: () -> Unit) {
     ) {
         Text("Follow-up Update", fontWeight = FontWeight.Bold)
         DropdownField("Follow-up Stage *", stages, selectedStage, { selectedStage = it })
-        DropdownField("Treatment Outcome *", outcomes, selectedOutcome, { selectedOutcome = it })
+        DropdownField("Treatment Outcome *", outcomes, selectedOutcome, { 
+            selectedOutcome = it 
+            if (it != "Other") outcomeOther = ""
+        })
+        
+        if (selectedOutcome == "Other") {
+            OutlinedTextField(
+                value = outcomeOther,
+                onValueChange = { outcomeOther = it },
+                label = { Text("Specify Other Outcome *") },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
 
         Row(
             modifier = Modifier
@@ -888,10 +1061,9 @@ fun FollowUpForm(onSubmit: (String, String) -> Unit, onCancel: () -> Unit) {
         ) {
             Button(
                 onClick = {
-                    if (selectedStage.isNotBlank() && selectedOutcome.isNotBlank()) onSubmit(
-                        selectedStage,
-                        selectedOutcome
-                    )
+                    if (selectedStage.isNotBlank() && selectedOutcome.isNotBlank()) {
+                        onSubmit(selectedStage, selectedOutcome, if (selectedOutcome == "Other") outcomeOther else null)
+                    }
                 },
                 modifier = Modifier.weight(1f)
             ) { Text("Submit") }

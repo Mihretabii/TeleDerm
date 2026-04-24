@@ -1,17 +1,23 @@
 package et.ahri.telederm
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import et.ahri.telederm.data.AppDatabase
 import et.ahri.telederm.data.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.util.UUID
+
+sealed class AuthState {
+    object Login : AuthState()
+    object Register : AuthState()
+    object ForgotPassword : AuthState()
+}
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
-    private val userDao = AppDatabase.getDatabase(application).userDao()
+    private val firebaseManager = FirebaseManager
 
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser
@@ -26,34 +32,64 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     val allUsers: StateFlow<List<User>> = _allUsers
 
     init {
-        seedAdminAccount()
+        // ALWAYS check/restore admin account if missing from Firestore
+        ensureAdminAccountExists()
+        observeUsers()
+        checkExistingSession()
     }
 
-    private fun seedAdminAccount() {
+    private fun checkExistingSession() {
         viewModelScope.launch {
-            val adminEmail = "teledermadmin@gmail.com"
-            val adminPassword = "admin123"
-
-            val oldEmails = listOf("admin@telederm.et", "admin@ahri.gov.et")
-            oldEmails.forEach { email ->
-                val oldAdmin = userDao.getUserByEmail(email)
-                if (oldAdmin != null && oldAdmin.role == "admin") {
-                    userDao.deleteUser(oldAdmin)
+            val fbUser = firebaseManager.getCurrentUser()
+            if (fbUser != null && fbUser.email != null) {
+                val userData = firebaseManager.getUser(fbUser.email!!)
+                if (userData != null) {
+                    _currentUser.value = userData
                 }
             }
+        }
+    }
 
-            val existingAdmin = userDao.getUserByEmail(adminEmail)
-            if (existingAdmin == null) {
-                userDao.registerUser(
-                    User(
+    private fun ensureAdminAccountExists() {
+        viewModelScope.launch {
+            try {
+                val adminEmail = "teledermahri@gmail.com"
+                val existingAdmin = firebaseManager.getUser(adminEmail)
+                
+                if (existingAdmin == null) {
+                    Log.d("AuthViewModel", "Admin record missing from Firestore. Restoring...")
+                    firebaseManager.saveUser(User(
                         email = adminEmail,
                         fullName = "System Admin",
                         sex = "Male",
-                        passwordHash = adminPassword,
+                        passwordHash = "PROTECTED",
                         role = "admin",
                         isApproved = true
-                    )
-                )
+                    ))
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Admin restoration failed", e)
+            }
+        }
+    }
+
+    private fun observeUsers() {
+        viewModelScope.launch {
+            try {
+                firebaseManager.getPendingUsers().collectLatest {
+                    _pendingUsers.value = it
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Observe pending users failed", e)
+            }
+        }
+        viewModelScope.launch {
+            try {
+                firebaseManager.getNonAdminUsers().collectLatest {
+                    _allUsers.value = it
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Observe non-admin users failed", e)
             }
         }
     }
@@ -62,60 +98,69 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _authState.value = state
     }
 
-    fun isPasswordValid(password: String): Boolean {
-        return password.length >= 6
+    private fun mapError(e: Exception): String {
+        val msg = e.message?.lowercase() ?: ""
+        return when {
+            msg.contains("badly formatted") -> "incorrect email format"
+            msg.contains("incorrect malformed") || msg.contains("invalid credential") || msg.contains("invalid-credential") || msg.contains("auth credential is incorrect") ->
+                "Incorrect email or password"
+            e is java.io.IOException || 
+            msg.contains("network") || 
+            msg.contains("connection") || 
+            msg.contains("unavailable") ||
+            msg.contains("timeout") ||
+            msg.contains("stream") ||
+            msg.contains("end of file") ||
+            e.javaClass.simpleName.contains("Network") -> 
+                "Connection error"
+            else -> e.message ?: "Authentication failed"
+        }
     }
 
     fun login(email: String, password: String, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
             try {
-                val trimmedEmail = email.trim()
+                val cleanedEmail = email.trim().lowercase()
                 val trimmedPassword = password.trim()
-
-                val user = userDao.getUserByEmail(trimmedEmail)
-                if (user != null && user.passwordHash == trimmedPassword) {
+                
+                firebaseManager.login(cleanedEmail, trimmedPassword)
+                
+                val user = firebaseManager.getUser(cleanedEmail)
+                if (user != null) {
                     if (user.role != "admin" && !user.isApproved) {
-                        onResult(
-                            false,
-                            "Your account is pending admin approval. Please contact the administrator."
-                        )
+                        firebaseManager.logout()
+                        onResult(false, "Your account is pending admin approval.")
                     } else {
                         _currentUser.value = user
                         onResult(true, null)
                     }
                 } else {
-                    onResult(false, "Invalid email or password")
+                    onResult(false, "User profile not found. Please contact support.")
                 }
             } catch (e: Exception) {
-                onResult(false, "Login failed: ${e.message}")
+                Log.e("AuthViewModel", "Login error", e)
+                onResult(false, mapError(e))
             }
         }
     }
 
     fun register(user: User, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
-            if (!isPasswordValid(user.passwordHash)) {
-                onResult(false, "Password must be at least 6 characters.")
-                return@launch
-            }
             try {
+                val cleanedEmail = user.email.trim().lowercase()
+                val password = user.passwordHash.trim()
+                firebaseManager.register(cleanedEmail, password)
+                
                 val cleanedUser = user.copy(
-                    email = user.email.trim(),
-                    passwordHash = user.passwordHash.trim(),
-                    isApproved = false
+                    email = cleanedEmail,
+                    passwordHash = "PROTECTED",
+                    isApproved = false 
                 )
-
-                val existingUser = userDao.getUserByEmail(cleanedUser.email)
-                if (existingUser != null) {
-                    onResult(false, "Email already registered.")
-                    return@launch
-                }
-
-                userDao.registerUser(cleanedUser)
-                _authState.value = AuthState.Login
-                onResult(true, "Registration successful! Your account is pending admin approval.")
+                firebaseManager.saveUser(cleanedUser)
+                onResult(true, "Registered successfully! Please wait for admin approval.")
             } catch (e: Exception) {
-                onResult(false, "Registration failed: ${e.message}")
+                Log.e("AuthViewModel", "Registration error", e)
+                onResult(false, mapError(e))
             }
         }
     }
@@ -123,70 +168,71 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun adminCreateUser(user: User, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
             try {
-                val existingUser = userDao.getUserByEmail(user.email.trim())
-                if (existingUser != null) {
-                    onResult(false, "Account is already created with this email.")
-                    return@launch
-                }
-                userDao.registerUser(
-                    user.copy(
-                        email = user.email.trim(),
-                        passwordHash = user.passwordHash.trim()
-                    )
-                )
-                loadUsers()
+                val cleanedEmail = user.email.trim().lowercase()
+                val password = user.passwordHash.trim()
+                firebaseManager.register(cleanedEmail, password)
+                firebaseManager.saveUser(user.copy(
+                    email = cleanedEmail, 
+                    passwordHash = "PROTECTED",
+                    isApproved = true
+                ))
                 onResult(true, "User created successfully.")
             } catch (e: Exception) {
-                onResult(false, "Creation failed: ${e.message}")
+                Log.e("AuthViewModel", "Admin create user error", e)
+                onResult(false, mapError(e))
             }
         }
     }
 
     fun updateProfile(fullName: String, sex: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val user = _currentUser.value
-            if (user != null) {
-                val updatedUser = user.copy(fullName = fullName, sex = sex)
-                userDao.updateUser(updatedUser)
-                _currentUser.value = updatedUser
-                onResult(true)
-            } else {
+            try {
+                val user = _currentUser.value
+                if (user != null) {
+                    val updatedUser = user.copy(fullName = fullName, sex = sex)
+                    firebaseManager.saveUser(updatedUser)
+                    _currentUser.value = updatedUser
+                    onResult(true)
+                } else {
+                    onResult(false)
+                }
+            } catch (e: Exception) {
                 onResult(false)
             }
         }
     }
 
-    fun loadUsers() {
-        viewModelScope.launch {
-            _pendingUsers.value = userDao.getPendingUsers()
-            _allUsers.value = userDao.getAllNonAdminUsers()
-        }
-    }
-
     fun approveUser(user: User) {
         viewModelScope.launch {
-            userDao.updateUser(user.copy(isApproved = true))
-            loadUsers()
+            try {
+                firebaseManager.updateUserApproval(user.email, true)
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Approve user failed", e)
+            }
         }
     }
 
     fun removeUser(user: User) {
         viewModelScope.launch {
-            userDao.deleteUser(user)
-            loadUsers()
+            try {
+                firebaseManager.deleteUser(user.email)
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Remove user failed", e)
+            }
         }
     }
 
     fun changePassword(newPassword: String, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
-            val user = _currentUser.value
-            val trimmedPassword = newPassword.trim()
-            if (user != null && trimmedPassword.length >= 6) {
-                val updatedUser = user.copy(passwordHash = trimmedPassword)
-                userDao.updateUser(updatedUser)
-                _currentUser.value = updatedUser
-                onResult(true)
-            } else {
+            try {
+                val trimmedPassword = newPassword.trim()
+                if (trimmedPassword.length >= 6) {
+                    firebaseManager.updatePassword(trimmedPassword)
+                    onResult(true)
+                } else {
+                    onResult(false)
+                }
+            } catch (e: Exception) {
                 onResult(false)
             }
         }
@@ -194,28 +240,20 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetPassword(email: String, onResult: (Boolean, String?, String?) -> Unit) {
         viewModelScope.launch {
-            val trimmedEmail = email.trim()
-            val user = userDao.getUserByEmail(trimmedEmail)
-            if (user != null) {
-                // Generate a temporary 8-character password
-                val tempPassword = UUID.randomUUID().toString().take(8).uppercase()
-                val updatedUser = user.copy(passwordHash = tempPassword)
-                userDao.updateUser(updatedUser)
-                onResult(true, "Success", tempPassword)
-            } else {
-                onResult(false, "No account found with that email address.", null)
+            try {
+                val cleanedEmail = email.trim().lowercase()
+                firebaseManager.sendPasswordReset(cleanedEmail)
+                onResult(true, "Password reset email sent. Please check your inbox.", null)
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Reset password error", e)
+                onResult(false, mapError(e), null)
             }
         }
     }
 
     fun logout() {
+        firebaseManager.logout()
         _currentUser.value = null
         _authState.value = AuthState.Login
     }
-}
-
-sealed class AuthState {
-    object Login : AuthState()
-    object Register : AuthState()
-    object ForgotPassword : AuthState()
 }

@@ -1,142 +1,230 @@
 package et.ahri.telederm
 
 import android.app.Application
+import android.content.ContentResolver
+import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import et.ahri.telederm.data.AppDatabase
+import et.ahri.telederm.data.AuditLog
 import et.ahri.telederm.data.PatientCase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class PatientViewModel(application: Application) : AndroidViewModel(application) {
-    private val patientCaseDao = AppDatabase.getDatabase(application).patientCaseDao()
+    private val firebaseManager = FirebaseManager
+    private val contentResolver: ContentResolver = application.contentResolver
 
-    val allCases: Flow<List<PatientCase>> = patientCaseDao.getAllCases()
+    private val _allCases = MutableStateFlow<List<PatientCase>>(emptyList())
+    val allCases: StateFlow<List<PatientCase>> = _allCases
 
-    fun submitCase(patientCase: PatientCase, onResult: (Boolean) -> Unit) {
+    init {
+        observeCases()
+    }
+
+    private fun observeCases() {
+        viewModelScope.launch {
+            firebaseManager.getAllCases().collectLatest {
+                _allCases.value = it
+            }
+        }
+    }
+
+    private suspend fun logAction(email: String, action: String, details: String) {
+        firebaseManager.logAction(AuditLog(userEmail = email, action = action, details = details))
+    }
+
+    private fun mapError(e: Exception): String {
+        val msg = e.message?.lowercase() ?: ""
+        return if (e is java.io.IOException || 
+            msg.contains("network") || 
+            msg.contains("connection") || 
+            msg.contains("unavailable") ||
+            msg.contains("timeout") ||
+            e.javaClass.simpleName.contains("Network")) {
+            "Connection error"
+        } else {
+            e.message ?: "Action failed"
+        }
+    }
+
+    fun submitCase(userEmail: String, patientCase: PatientCase, imageUris: List<Uri>, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
             try {
-                patientCaseDao.insertCase(patientCase)
+                Log.d("PatientViewModel", "Starting case submission for ${patientCase.patientId}")
+                
+                // Upload images sequentially to Cloudinary
+                val downloadUrls = mutableListOf<String>()
+                for (uri in imageUris) {
+                    Log.d("PatientViewModel", "Uploading image: $uri")
+                    try {
+                        val url = firebaseManager.uploadImage(contentResolver, uri)
+                        downloadUrls.add(url)
+                    } catch (e: Exception) {
+                        Log.e("PatientViewModel", "Failed to upload image: $uri", e)
+                        onResult(false, mapError(e))
+                        return@launch
+                    }
+                }
+                
+                // Update patientCase with the Cloudinary secure URLs
+                val finalCase = patientCase.copy(images = downloadUrls.joinToString(","))
+                
+                Log.d("PatientViewModel", "Saving case data to Firestore...")
+                firebaseManager.submitCase(finalCase)
+                
+                logAction(userEmail, "SUBMIT_CASE", "Submitted case #${patientCase.patientId}")
 
-                // Notify about new case submission
                 NotificationHelper.showNotification(
                     getApplication(),
                     "New Case Submitted",
                     "A new patient case (#${patientCase.patientId}) has been submitted for review."
                 )
-                
-                onResult(true)
+                Log.d("PatientViewModel", "Case submitted successfully")
+                onResult(true, null)
             } catch (e: Exception) {
-                onResult(false)
+                Log.e("PatientViewModel", "Submission failed completely", e)
+                onResult(false, mapError(e))
             }
         }
     }
 
     fun updateCaseReview(
-        caseId: Int,
+        userEmail: String,
+        caseDocId: String,
+        patientId: String,
         diagnosis: String,
+        diagnosisOther: String?,
         differentialDiagnosis: String,
         certainty: String,
         labConfirmationNeeded: Boolean,
         labTests: String,
         treatmentType: String,
+        treatmentTypeOther: String?,
         dosageDuration: String,
+        dosageDurationOther: String?,
         followUpInterval: String,
         isReferral: Boolean,
         referralReason: String,
         feedback: String,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean, String?) -> Unit
     ) {
         viewModelScope.launch {
-            val existingCase = patientCaseDao.getCaseById(caseId)
-            if (existingCase != null) {
+            try {
                 val status = if (isReferral || treatmentType == "Referral for specialist care") "Referred" else "Reviewed"
-                val updatedCase = existingCase.copy(
-                    diagnosis = diagnosis,
-                    differentialDiagnosis = differentialDiagnosis,
-                    certainty = certainty,
-                    labConfirmationNeeded = labConfirmationNeeded,
-                    labTests = labTests,
-                    treatmentType = treatmentType,
-                    dosageDuration = dosageDuration,
-                    followUpInterval = followUpInterval,
-                    isReferral = isReferral,
-                    referralReason = referralReason,
-                    feedback = feedback,
-                    status = status
+                val updates = mutableMapOf<String, Any>(
+                    "diagnosis" to diagnosis,
+                    "diagnosisOther" to (diagnosisOther ?: ""),
+                    "differentialDiagnosis" to differentialDiagnosis,
+                    "certainty" to certainty,
+                    "labConfirmationNeeded" to labConfirmationNeeded,
+                    "labTests" to labTests,
+                    "treatmentType" to treatmentType,
+                    "treatmentTypeOther" to (treatmentTypeOther ?: ""),
+                    "dosageDuration" to dosageDuration,
+                    "dosageDurationOther" to (dosageDurationOther ?: ""),
+                    "followUpInterval" to followUpInterval,
+                    "isReferral" to isReferral,
+                    "referralReason" to referralReason,
+                    "feedback" to feedback,
+                    "status" to status
                 )
-                patientCaseDao.updateCase(updatedCase)
+                
+                firebaseManager.updateCase(caseDocId, updates)
+                logAction(userEmail, "REVIEW_CASE", "Reviewed case #$patientId as $status")
 
-                // Notify health worker that case has been reviewed
                 NotificationHelper.showNotification(
                     getApplication(),
                     "Case Reviewed",
-                    "Case #${existingCase.patientId} has been $status by the dermatologist."
+                    "Case #$patientId has been $status by the dermatologist."
                 )
-
-                onResult(true)
-            } else {
-                onResult(false)
+                onResult(true, null)
+            } catch (e: Exception) {
+                Log.e("PatientViewModel", "Update review failed", e)
+                onResult(false, mapError(e))
             }
         }
     }
 
-    fun submitFollowUpUpdate(
-        caseId: Int,
+    fun submitFollowUpUpdateExtended(
+        userEmail: String,
+        caseDocId: String,
+        patientId: String,
         stage: String,
         outcome: String,
-        onResult: (Boolean) -> Unit
+        outcomeOther: String?,
+        onResult: (Boolean, String?) -> Unit
     ) {
         viewModelScope.launch {
-            val existingCase = patientCaseDao.getCaseById(caseId)
-            if (existingCase != null) {
-                val updatedCase = existingCase.copy(
-                    followUpStage = stage,
-                    treatmentOutcome = outcome,
-                    isUpdatePending = true,
-                    updateFeedback = null // Clear old feedback for the new update
+            try {
+                val followUpData = mapOf(
+                    "stage" to stage,
+                    "outcome" to outcome,
+                    "outcomeOther" to (outcomeOther ?: ""),
+                    "timestamp" to System.currentTimeMillis().toString()
                 )
-                patientCaseDao.updateCase(updatedCase)
+                
+                val updates = mapOf(
+                    "followUpStage" to stage,
+                    "treatmentOutcome" to outcome,
+                    "treatmentOutcomeOther" to (outcomeOther ?: ""),
+                    "isUpdatePending" to true,
+                    "updateFeedback" to "", // Clear old feedback
+                    "followUps.$stage" to followUpData // Store independently by stage
+                )
+                
+                firebaseManager.updateCase(caseDocId, updates)
+                logAction(userEmail, "FOLLOW_UP_UPDATE", "Submitted follow-up ($stage) for case #$patientId")
 
-                // Notify dermatologist about new progress update
                 NotificationHelper.showNotification(
                     getApplication(),
                     "Progress Update Received",
-                    "A new follow-up update ($stage) has been submitted for Case #${existingCase.patientId}."
+                    "A new follow-up update ($stage) has been submitted for Case #$patientId."
                 )
-
-                onResult(true)
-            } else {
-                onResult(false)
+                onResult(true, null)
+            } catch (e: Exception) {
+                Log.e("PatientViewModel", "Follow-up update failed", e)
+                onResult(false, mapError(e))
             }
         }
     }
 
-    fun updateFollowUpFeedback(
-        caseId: Int,
+    fun updateFollowUpFeedbackExtended(
+        userEmail: String,
+        caseDocId: String,
+        patientId: String,
+        stage: String,
         feedback: String,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean, String?) -> Unit
     ) {
         viewModelScope.launch {
-            val existingCase = patientCaseDao.getCaseById(caseId)
-            if (existingCase != null) {
-                val updatedCase = existingCase.copy(
-                    updateFeedback = feedback,
-                    isUpdatePending = false
+            try {
+                val updates = mapOf(
+                    "updateFeedback" to feedback,
+                    "isUpdatePending" to false,
+                    "followUps.$stage.feedback" to feedback
                 )
-                patientCaseDao.updateCase(updatedCase)
+                
+                firebaseManager.updateCase(caseDocId, updates)
+                logAction(userEmail, "FOLLOW_UP_FEEDBACK", "Provided feedback for case #$patientId ($stage)")
 
-                // Notify health worker about follow-up feedback
                 NotificationHelper.showNotification(
                     getApplication(),
                     "Follow-up Feedback",
-                    "The dermatologist has provided feedback on the latest update for Case #${existingCase.patientId}."
+                    "The dermatologist has provided feedback on the $stage update for Case #$patientId."
                 )
-
-                onResult(true)
-            } else {
-                onResult(false)
+                onResult(true, null)
+            } catch (e: Exception) {
+                Log.e("PatientViewModel", "Follow-up feedback failed", e)
+                onResult(false, mapError(e))
             }
         }
+    }
+
+    fun getAllAuditLogs(): Flow<List<AuditLog>> {
+        return firebaseManager.getAllLogs()
     }
 }

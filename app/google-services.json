@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "469918702174",
+    "project_id": "telederm-3f79e",
+    "storage_bucket": "telederm-3f79e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:469918702174:android:33380cfb2d19938a7a32cf",
+        "android_client_info": {
+          "package_name": "et.ahri.telederm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB5qYTex3D-V8AnuK6cOKvw8l68slCWBQ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -14,10 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -40,6 +36,21 @@ fun LoginScreen(viewModel: AuthViewModel) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val context = LocalContext.current
+    
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    if (errorDialogMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorDialogMessage = null },
+            title = { Text("Error") },
+            text = { Text(errorDialogMessage!!) },
+            confirmButton = {
+                Button(onClick = { errorDialogMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -48,7 +59,7 @@ fun LoginScreen(viewModel: AuthViewModel) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("🏥 TELE-DERM Login", style = MaterialTheme.typography.headlineMedium)
+        Text("🏥 TELE-DERM Login", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(32.dp))
         OutlinedTextField(
             value = email,
@@ -70,7 +81,7 @@ fun LoginScreen(viewModel: AuthViewModel) {
                 if (email.isNotBlank() && password.isNotBlank()) {
                     viewModel.login(email, password) { success, error ->
                         if (!success) {
-                            Toast.makeText(context, error ?: "Login failed", Toast.LENGTH_SHORT).show()
+                            errorDialogMessage = error ?: "Login failed"
                         }
                     }
                 } else {
@@ -92,7 +103,6 @@ fun LoginScreen(viewModel: AuthViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterScreen(viewModel: AuthViewModel) {
     var fullName by remember { mutableStateOf("") }
@@ -103,7 +113,42 @@ fun RegisterScreen(viewModel: AuthViewModel) {
     val context = LocalContext.current
 
     val roles = listOf("health_worker", "dermatologist")
-    var roleExpanded by remember { mutableStateOf(false) }
+    var showSuccessDialog by remember { mutableStateOf(false) }
+    var successMessage by remember { mutableStateOf("") }
+    
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    if (errorDialogMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorDialogMessage = null },
+            title = { Text("Error") },
+            text = { Text(errorDialogMessage!!) },
+            confirmButton = {
+                Button(onClick = { errorDialogMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (showSuccessDialog) {
+        AlertDialog(
+            onDismissRequest = { 
+                showSuccessDialog = false
+                viewModel.setAuthState(AuthState.Login)
+            },
+            title = { Text("Registration Successful") },
+            text = { Text(successMessage) },
+            confirmButton = {
+                Button(onClick = {
+                    showSuccessDialog = false
+                    viewModel.setAuthState(AuthState.Login)
+                }) {
+                    Text("Go to Login")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -113,56 +158,52 @@ fun RegisterScreen(viewModel: AuthViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(32.dp))
-        Text("🏥 Create Account", style = MaterialTheme.typography.headlineMedium)
+        Text("🏥 Create Account", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(32.dp))
-        OutlinedTextField(value = fullName, onValueChange = { fullName = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(8.dp))
         
-        var sexExpanded by remember { mutableStateOf(false) }
-        ExposedDropdownMenuBox(expanded = sexExpanded, onExpandedChange = { sexExpanded = !sexExpanded }) {
-            OutlinedTextField(
-                value = sex,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Sex") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sexExpanded) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor()
-            )
-            ExposedDropdownMenu(expanded = sexExpanded, onDismissRequest = { sexExpanded = false }) {
-                listOf("Male", "Female").forEach { option ->
-                    DropdownMenuItem(text = { Text(option) }, onClick = { sex = option; sexExpanded = false })
-                }
-            }
-        }
+        OutlinedTextField(
+            value = fullName, 
+            onValueChange = { fullName = it }, 
+            label = { Text("Full Name") }, 
+            modifier = Modifier.fillMaxWidth()
+        )
         
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth())
+        
+        DropdownField(
+            label = "Sex",
+            options = listOf("Male", "Female"),
+            selectedOption = sex,
+            onOptionSelected = { sex = it }
+        )
+        
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        
+        OutlinedTextField(
+            value = email, 
+            onValueChange = { email = it }, 
+            label = { Text("Email") }, 
+            modifier = Modifier.fillMaxWidth()
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        OutlinedTextField(
+            value = password, 
+            onValueChange = { password = it }, 
+            label = { Text("Password") }, 
+            visualTransformation = PasswordVisualTransformation(), 
+            modifier = Modifier.fillMaxWidth()
+        )
+        
         Spacer(modifier = Modifier.height(8.dp))
 
-        ExposedDropdownMenuBox(expanded = roleExpanded, onExpandedChange = { roleExpanded = !roleExpanded }) {
-            OutlinedTextField(
-                value = if (role == "health_worker") "Health Worker" else "Dermatologist",
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Role") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = roleExpanded) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor()
-            )
-            ExposedDropdownMenu(expanded = roleExpanded, onDismissRequest = { roleExpanded = false }) {
-                roles.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(if (option == "health_worker") "Health Worker" else "Dermatologist") },
-                        onClick = { role = option; roleExpanded = false }
-                    )
-                }
-            }
-        }
+        DropdownField(
+            label = "Role",
+            options = roles,
+            selectedOption = role,
+            onOptionSelected = { role = it }
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
         Button(
@@ -170,19 +211,20 @@ fun RegisterScreen(viewModel: AuthViewModel) {
                 if (fullName.isNotBlank() && email.isNotBlank() && password.isNotBlank() && sex.isNotBlank()) {
                     viewModel.register(
                         User(
-                            email,
-                            fullName,
-                            sex,
-                            password,
-                            role,
+                            email = email,
+                            fullName = fullName,
+                            sex = sex,
+                            passwordHash = password,
+                            role = role,
                             isApproved = false
                         )
                     ) { success, message ->
-                        Toast.makeText(
-                            context,
-                            message ?: "Registration response",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        if (success) {
+                            successMessage = message ?: "Account created successfully! Please wait for admin approval."
+                            showSuccessDialog = true
+                        } else {
+                            errorDialogMessage = message ?: "Registration failed"
+                        }
                     }
                 } else {
                     Toast.makeText(context, "Please fill all fields", Toast.LENGTH_SHORT).show()
@@ -206,6 +248,21 @@ fun ForgotPasswordScreen(viewModel: AuthViewModel) {
     var recoveredPass by remember { mutableStateOf("") }
 
     val context = LocalContext.current
+    
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    if (errorDialogMessage != null) {
+        AlertDialog(
+            onDismissRequest = { errorDialogMessage = null },
+            title = { Text("Error") },
+            text = { Text(errorDialogMessage!!) },
+            confirmButton = {
+                Button(onClick = { errorDialogMessage = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     if (showDialog) {
         AlertDialog(
@@ -268,7 +325,7 @@ fun ForgotPasswordScreen(viewModel: AuthViewModel) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("🔑 Reset Password", style = MaterialTheme.typography.headlineMedium)
+        Text("🔑 Reset Password", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             "Enter your registered email to recover your account.",
@@ -291,11 +348,7 @@ fun ForgotPasswordScreen(viewModel: AuthViewModel) {
                             recoveredPass = password
                             showDialog = true
                         } else {
-                            Toast.makeText(
-                                context,
-                                message ?: "Failed to recover password",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            errorDialogMessage = message ?: "Failed to recover password"
                         }
                     }
                 } else {
