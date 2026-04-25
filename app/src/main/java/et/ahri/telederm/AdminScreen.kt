@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
@@ -29,6 +30,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import coil.compose.rememberAsyncImagePainter
 import et.ahri.telederm.data.AuditLog
@@ -462,58 +465,84 @@ fun CaseDetailDialog(patientCase: PatientCase, onDismiss: () -> Unit) {
         EnlargedImageDialog(imageUrl = enlargedImageUri!!, onDismiss = { enlargedImageUri = null })
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Full Case Details: #${patientCase.patientId}") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("🏥 Facility & HW", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("Facility: ${patientCase.facility} (${patientCase.facilityType})")
-                Text("HW Type: ${patientCase.healthWorkerType}")
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("📋 Patient Info", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("Patient: ${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
-                Text("Location: ${patientCase.region}, ${patientCase.zone}, ${patientCase.woreda}, ${patientCase.kebele}")
-                Text("Phone: ${patientCase.phoneNumber}")
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Case Details: #${patientCase.patientId}") },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                            actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .padding(paddingValues)
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text("🏥 Facility & HW", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Facility", "${patientCase.facility} (${patientCase.facilityType})")
+                    ResponseItem("HW Type", patientCase.healthWorkerType)
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("📋 Patient Info", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Patient", "${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
+                    ResponseItem("Location", "${patientCase.region}, ${patientCase.zone}, ${patientCase.woreda}, ${patientCase.kebele}")
+                    ResponseItem("Phone", patientCase.phoneNumber)
 
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("🔍 Clinical History", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("Lesion: ${patientCase.lesionType} at ${patientCase.lesionLocation}")
-                Text("Size: ${patientCase.lesionSize} cm | Duration: ${patientCase.lesionDuration}")
-                Text("Symptoms: ${patientCase.associatedSymptoms}")
-                Text("Notes: ${patientCase.additionalNotes}")
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("🖼️ Images", fontWeight = FontWeight.Bold)
-                if (patientCase.images.isNotEmpty()) {
-                    val imageUrls = patientCase.images.split(",")
-                    LazyRow(modifier = Modifier.height(80.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(imageUrls) { url ->
-                            Image(
-                                painter = rememberAsyncImagePainter(url),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable { enlargedImageUri = url }
-                                    .background(Color.LightGray),
-                                contentScale = ContentScale.Crop
-                            )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🔍 Clinical History", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Lesion", "${patientCase.lesionType} at ${patientCase.lesionLocation}")
+                    ResponseItem("Size", "${patientCase.lesionSize} cm")
+                    ResponseItem("Duration", patientCase.lesionDuration)
+                    ResponseItem("Symptoms", patientCase.associatedSymptoms)
+                    ResponseItem("Notes", patientCase.additionalNotes)
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🖼️ Images", fontWeight = FontWeight.Bold)
+                    if (patientCase.images.isNotEmpty()) {
+                        val imageUrls = patientCase.images.split(",")
+                        LazyRow(modifier = Modifier.height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(imageUrls) { url ->
+                                Image(
+                                    painter = rememberAsyncImagePainter(url),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(100.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { enlargedImageUri = url }
+                                        .background(Color.LightGray),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
                         }
                     }
-                }
 
-                Divider(Modifier.padding(vertical = 8.dp))
-                Text("🩺 Review Info", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("Status: ${patientCase.status}")
-                Text("Diagnosis: ${patientCase.diagnosis ?: "Pending"}")
-                Text("Treatment: ${patientCase.treatmentType ?: "N/A"}")
-                Text("Lab Tests: ${patientCase.labTests ?: "None"}")
-                Text("Outcome: ${patientCase.treatmentOutcome ?: "No follow-up yet"}")
-                Text("HW Feedback: ${patientCase.feedback ?: "N/A"}")
+                    Divider(Modifier.padding(vertical = 12.dp))
+                    Text("🩺 Review Info", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Status", patientCase.status)
+                    ResponseItem("Diagnosis", patientCase.diagnosis ?: "Pending")
+                    ResponseItem("Treatment", patientCase.treatmentType ?: "N/A")
+                    ResponseItem("Lab Tests", patientCase.labTests ?: "None")
+                    ResponseItem("Outcome", patientCase.treatmentOutcome ?: "No follow-up yet")
+                    ResponseItem("HW Feedback", patientCase.feedback ?: "N/A")
+                }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
+        }
+    }
 }

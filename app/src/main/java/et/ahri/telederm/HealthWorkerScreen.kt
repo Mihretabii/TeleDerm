@@ -12,20 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -34,45 +21,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,6 +37,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -323,7 +279,7 @@ fun SubmitCaseTab(viewModel: PatientViewModel, userEmail: String) {
     }
 
     if (enlargedImageUri != null) {
-        EnlargedImageDialog(imageUrl = enlargedImageUri!!, onDismiss = { enlargedImageUri = null })
+        EnlargedImageDialog(imageUrl = enlargedImageUri.toString(), onDismiss = { enlargedImageUri = null })
     }
 
     var showDatePicker by remember { mutableStateOf(false) }
@@ -883,6 +839,7 @@ fun MyCasesTab(viewModel: PatientViewModel, userEmail: String, cases: List<Patie
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CaseResponseDialog(
     viewModel: PatientViewModel,
@@ -912,114 +869,139 @@ fun CaseResponseDialog(
         EnlargedImageDialog(imageUrl = enlargedImageUri!!, onDismiss = { enlargedImageUri = null })
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Case Details: #${patientCase.patientId}") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text("📋 Submitted Information", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                ResponseItem("Patient", "${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
-                ResponseItem("Facility", "${patientCase.facility} (${patientCase.facilityType})")
-                ResponseItem("HW Type", patientCase.healthWorkerType)
-                ResponseItem("Location", patientCase.residence)
-                ResponseItem("Visit Date", patientCase.visitDate)
-                ResponseItem("Phone", patientCase.phoneNumber)
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("🔍 Clinical Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                ResponseItem("Lesion Type", if (patientCase.lesionType == "Other") "Other: ${patientCase.lesionTypeOther ?: ""}" else patientCase.lesionType)
-                ResponseItem("Location", if (patientCase.lesionLocation.contains("Other")) "${patientCase.lesionLocation} (${patientCase.lesionLocationOther ?: ""})" else patientCase.lesionLocation)
-                ResponseItem("Duration", patientCase.lesionDuration)
-                ResponseItem("Exposure", patientCase.exposureHistory)
-                ResponseItem("Symptoms", patientCase.associatedSymptoms)
-                ResponseItem("Comorbidities", patientCase.comorbidities)
-                ResponseItem("Prev treatment", if (patientCase.prevTreatment == "Other") "Other: ${patientCase.prevTreatmentOther ?: ""}" else patientCase.prevTreatment)
-                ResponseItem("Notes", patientCase.additionalNotes)
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Case Details: #${patientCase.patientId}") },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                            actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .padding(paddingValues)
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text("📋 Submitted Information", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Patient", "${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
+                    ResponseItem("Facility", "${patientCase.facility} (${patientCase.facilityType})")
+                    ResponseItem("HW Type", patientCase.healthWorkerType)
+                    ResponseItem("Location", patientCase.residence)
+                    ResponseItem("Visit Date", patientCase.visitDate)
+                    ResponseItem("Phone", patientCase.phoneNumber)
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🔍 Clinical Details", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Lesion Type", if (patientCase.lesionType == "Other") "Other: ${patientCase.lesionTypeOther ?: ""}" else patientCase.lesionType)
+                    ResponseItem("Location", if (patientCase.lesionLocation.contains("Other")) "${patientCase.lesionLocation} (${patientCase.lesionLocationOther ?: ""})" else patientCase.lesionLocation)
+                    ResponseItem("Duration", patientCase.lesionDuration)
+                    ResponseItem("Exposure", patientCase.exposureHistory)
+                    ResponseItem("Symptoms", patientCase.associatedSymptoms)
+                    ResponseItem("Comorbidities", patientCase.comorbidities)
+                    ResponseItem("Prev treatment", if (patientCase.prevTreatment == "Other") "Other: ${patientCase.prevTreatmentOther ?: ""}" else patientCase.prevTreatment)
+                    ResponseItem("Notes", patientCase.additionalNotes)
 
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("🖼️ Submitted Images", fontWeight = FontWeight.Bold)
-                if (patientCase.images.isNotEmpty()) {
-                    val imageUrls = patientCase.images.split(",")
-                    LazyRow(modifier = Modifier.height(80.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(imageUrls) { url ->
-                            Image(
-                                painter = rememberAsyncImagePainter(url),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable { enlargedImageUri = url }
-                                    .background(Color.LightGray),
-                                contentScale = ContentScale.Crop
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🖼️ Submitted Images", fontWeight = FontWeight.Bold)
+                    if (patientCase.images.isNotEmpty()) {
+                        val imageUrls = patientCase.images.split(",")
+                        LazyRow(modifier = Modifier.height(80.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(imageUrls) { url ->
+                                Image(
+                                    painter = rememberAsyncImagePainter(url),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(80.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { enlargedImageUri = url }
+                                        .background(Color.LightGray),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+
+                    Divider(Modifier.padding(vertical = 12.dp))
+
+                    Text("🩺 Dermatologist Response", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    if (patientCase.status == "Pending") {
+                        Text("This case is still pending review.", color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+                    } else {
+                        ResponseItem("Status", patientCase.status, if(patientCase.status == "Reviewed") Color(0xFF22C55E) else Color(0xFFEF4444))
+                        ResponseItem("Primary Diagnosis", if (patientCase.diagnosis == "Other") "Other: ${patientCase.diagnosisOther ?: ""}" else patientCase.diagnosis ?: "N/A")
+                        ResponseItem("Differential Diagnoses", patientCase.differentialDiagnosis ?: "N/A")
+                        ResponseItem("Certainty", patientCase.certainty ?: "N/A")
+                        ResponseItem("Lab Needed", if(patientCase.labConfirmationNeeded) "Yes: ${patientCase.labTests ?: ""}" else "No")
+                        ResponseItem("Recommended Treatment", if (patientCase.treatmentType == "Other") "Other: ${patientCase.treatmentTypeOther ?: ""}" else patientCase.treatmentType ?: "N/A")
+                        ResponseItem("Dosage & Duration", if (patientCase.dosageDuration == "Other") "Other: ${patientCase.dosageDurationOther ?: ""}" else patientCase.dosageDuration ?: "N/A")
+                        ResponseItem("Follow-up Interval", "${patientCase.followUpInterval ?: ""} days")
+                        ResponseItem("Referral Needed", if(patientCase.isReferral) "Yes: ${patientCase.referralReason ?: ""}" else "No")
+                        ResponseItem("Feedback", patientCase.feedback ?: "No feedback.")
+
+                        // Display all independent follow-ups
+                        if (patientCase.followUps != null && patientCase.followUps!!.isNotEmpty()) {
+                            patientCase.followUps!!.toSortedMap().forEach { (stage, data) ->
+                                Divider(Modifier.padding(vertical = 8.dp))
+                                Text("📈 Follow-up: $stage", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                                ResponseItem("Treatment Outcome", if(data["outcome"] == "Other") "Other: ${data["outcomeOther"] ?: ""}" else data["outcome"] ?: "")
+                                ResponseItem("Dermatologist Feedback", data["feedback"] ?: "Pending review...")
+                            }
+                        }
+
+                        if (!showFollowUpForm && !patientCase.isUpdatePending) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { showFollowUpForm = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Submit Progress Update")
+                            }
+                        }
+
+                        if (showFollowUpForm) {
+                            FollowUpForm(
+                                onSubmit = { stage, outcome, outcomeOther ->
+                                    viewModel.submitFollowUpUpdateExtended(
+                                        userEmail,
+                                        patientCase.docId,
+                                        patientCase.patientId,
+                                        stage,
+                                        outcome,
+                                        outcomeOther
+                                    ) { success, error ->
+                                        if (success) {
+                                            showFollowUpForm = false
+                                            onDismiss()
+                                        } else {
+                                            errorDialogMessage = error ?: "Connection error"
+                                        }
+                                    }
+                                },
+                                onCancel = { showFollowUpForm = false }
                             )
                         }
                     }
                 }
-
-                Divider(Modifier.padding(vertical = 12.dp))
-
-                Text("🩺 Dermatologist Response", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                if (patientCase.status == "Pending") {
-                    Text("This case is still pending review.", color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
-                } else {
-                    ResponseItem("Status", patientCase.status, if(patientCase.status == "Reviewed") Color(0xFF22C55E) else Color(0xFFEF4444))
-                    ResponseItem("Primary Diagnosis", if (patientCase.diagnosis == "Other") "Other: ${patientCase.diagnosisOther ?: ""}" else patientCase.diagnosis ?: "N/A")
-                    ResponseItem("Differential Diagnoses", patientCase.differentialDiagnosis ?: "N/A")
-                    ResponseItem("Certainty", patientCase.certainty ?: "N/A")
-                    ResponseItem("Lab Needed", if(patientCase.labConfirmationNeeded) "Yes: ${patientCase.labTests ?: ""}" else "No")
-                    ResponseItem("Recommended Treatment", if (patientCase.treatmentType == "Other") "Other: ${patientCase.treatmentTypeOther ?: ""}" else patientCase.treatmentType ?: "N/A")
-                    ResponseItem("Dosage & Duration", if (patientCase.dosageDuration == "Other") "Other: ${patientCase.dosageDurationOther ?: ""}" else patientCase.dosageDuration ?: "N/A")
-                    ResponseItem("Follow-up Interval", "${patientCase.followUpInterval ?: ""} days")
-                    ResponseItem("Referral Needed", if(patientCase.isReferral) "Yes: ${patientCase.referralReason ?: ""}" else "No")
-                    ResponseItem("Feedback", patientCase.feedback ?: "No feedback.")
-
-                    // Display all independent follow-ups
-                    if (patientCase.followUps != null && patientCase.followUps!!.isNotEmpty()) {
-                        patientCase.followUps!!.toSortedMap().forEach { (stage, data) ->
-                            Divider(Modifier.padding(vertical = 8.dp))
-                            Text("📈 Follow-up: $stage", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
-                            ResponseItem("Treatment Outcome", if(data["outcome"] == "Other") "Other: ${data["outcomeOther"] ?: ""}" else data["outcome"] ?: "")
-                            ResponseItem("Dermatologist Feedback", data["feedback"] ?: "Pending review...")
-                        }
-                    }
-
-                    if (!showFollowUpForm && !patientCase.isUpdatePending) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = { showFollowUpForm = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Submit Progress Update")
-                        }
-                    }
-
-                    if (showFollowUpForm) {
-                        FollowUpForm(
-                            onSubmit = { stage, outcome, outcomeOther ->
-                                viewModel.submitFollowUpUpdateExtended(
-                                    userEmail,
-                                    patientCase.docId,
-                                    patientCase.patientId,
-                                    stage,
-                                    outcome,
-                                    outcomeOther
-                                ) { success, error ->
-                                    if (success) {
-                                        showFollowUpForm = false
-                                        onDismiss()
-                                    } else {
-                                        errorDialogMessage = error ?: "Connection error"
-                                    }
-                                }
-                            },
-                            onCancel = { showFollowUpForm = false }
-                        )
-                    }
-                }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
-    )
+        }
+    }
 }
 
 @Composable
@@ -1069,13 +1051,5 @@ fun FollowUpForm(onSubmit: (String, String, String?) -> Unit, onCancel: () -> Un
             ) { Text("Submit") }
             OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
         }
-    }
-}
-
-@Composable
-fun ResponseItem(label: String, value: String, color: Color = MaterialTheme.colorScheme.onSurface) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = color)
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.*
@@ -23,6 +24,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.rememberAsyncImagePainter
 import et.ahri.telederm.data.PatientCase
 
@@ -224,276 +227,296 @@ fun ReviewCaseDialog(
         EnlargedImageDialog(imageUrl = enlargedImageUri!!, onDismiss = { enlargedImageUri = null })
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Case: #${patientCase.patientId}")
-                if (!isReviewing && patientCase.status != "Pending") {
-                    IconButton(onClick = { isReviewing = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Review", tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-        },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text("🏥 Facility Information", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                ResponseItem("Facility", "${patientCase.facility} (${patientCase.facilityType})")
-                ResponseItem("HW Type", patientCase.healthWorkerType)
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("👤 Patient Details", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                ResponseItem("Patient", "${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
-                ResponseItem("Location", patientCase.residence)
-                ResponseItem("Region/Zone", "${patientCase.region} / ${patientCase.zone}")
-                ResponseItem("Woreda/Kebele", "${patientCase.woreda} / ${patientCase.kebele}")
-                ResponseItem("Phone", patientCase.phoneNumber)
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("🔍 Clinical History", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                ResponseItem("Symptoms", patientCase.associatedSymptoms)
-                ResponseItem("Exposure", patientCase.exposureHistory)
-                ResponseItem("Lesion Type", if (patientCase.lesionType == "Other") "Other: ${patientCase.lesionTypeOther ?: ""}" else patientCase.lesionType)
-                ResponseItem("Lesion Count", patientCase.numLesions)
-                ResponseItem("Lesion Location", if (patientCase.lesionLocation.contains("Other")) "${patientCase.lesionLocation} (${patientCase.lesionLocationOther ?: ""})" else patientCase.lesionLocation)
-                ResponseItem("Lesion Size", "${patientCase.lesionSize} cm")
-                ResponseItem("Duration", patientCase.lesionDuration)
-                ResponseItem("Itching/Pain", patientCase.painLevel)
-                ResponseItem("Prev Treatment", if (patientCase.prevTreatment == "Other") "Other: ${patientCase.prevTreatmentOther ?: ""}" else patientCase.prevTreatment)
-                ResponseItem("Comorbidities", patientCase.comorbidities)
-                ResponseItem("Notes", patientCase.additionalNotes)
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("🖼️ Images (Click to enlarge)", fontWeight = FontWeight.Bold)
-                if (patientCase.images.isNotEmpty()) {
-                    val imageUrls = patientCase.images.split(",")
-                    LazyRow(modifier = Modifier.height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(imageUrls) { url ->
-                            Image(
-                                painter = rememberAsyncImagePainter(url),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(100.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { enlargedImageUri = url }
-                                    .background(Color.LightGray),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
-                    }
-                }
-
-                Divider(modifier = Modifier.padding(vertical = 16.dp))
-                
-                if (!isReviewing) {
-                    Text("🩺 Review Summary (Read-Only)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    ResponseItem("Diagnosis", if (diagnosis == "Other") "Other: ${patientCase.diagnosisOther ?: ""}" else diagnosis)
-                    ResponseItem("Diff. Diagnosis", differentialDiagnosis.takeIf { it.isNotBlank() } ?: "N/A")
-                    ResponseItem("Certainty", certainty)
-                    ResponseItem("Lab Needed", if(labNeeded) "Yes: ${patientCase.labTests ?: ""}" else "No")
-                    ResponseItem("Treatment", if (treatmentType == "Other") "Other: ${patientCase.treatmentTypeOther ?: ""}" else treatmentType)
-                    ResponseItem("Dosage", if (dosageDuration == "Other") "Other: ${patientCase.dosageDurationOther ?: ""}" else dosageDuration.takeIf { it.isNotBlank() } ?: "N/A")
-                    ResponseItem("Follow-up", "$followUpInterval days")
-                    ResponseItem("Referral", if(referralNeeded) "Yes: ${patientCase.referralReason ?: ""}" else "No")
-                    ResponseItem("Feedback", feedback.takeIf { it.isNotBlank() } ?: "N/A")
-                } else {
-                    Text("🩺 Clinical Decision (Editing Mode)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    
-                    val diagnosisOptions = listOf("Cutaneous Leishmaniasis (CL)", "Eczema", "Psoriasis", "Fungal Infection", "Bacterial Infection", "Viral Infection", "Scabies", "Other")
-                    DropdownField("Primary Diagnosis Choice *", diagnosisOptions, diagnosis, { 
-                        diagnosis = it 
-                        if (it != "Other") diagnosisOther = ""
-                    })
-
-                    if (diagnosis == "Other") {
-                        OutlinedTextField(
-                            value = diagnosisOther,
-                            onValueChange = { diagnosisOther = it },
-                            label = { Text("Specify Other Diagnosis") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = differentialDiagnosis, 
-                        onValueChange = { differentialDiagnosis = it }, 
-                        label = { Text("Differential Diagnoses") },
-                        placeholder = { Text("e.g., Sporotrichosis, Wart") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    
-                    DropdownField("Diagnostic Certainty *", listOf("Low", "Moderate", "High"), certainty, { certainty = it })
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Lab Confirmation Needed", style = MaterialTheme.typography.labelLarge)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = labNeeded, onClick = { labNeeded = true })
-                        Text("Yes", modifier = Modifier.clickable { labNeeded = true })
-                        Spacer(modifier = Modifier.width(16.dp))
-                        RadioButton(selected = !labNeeded, onClick = { labNeeded = false })
-                        Text("No", modifier = Modifier.clickable { labNeeded = false })
-                    }
-                    
-                    if (labNeeded) {
-                        Text("Select Lab Tests", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
-                        FlowRow(modifier = Modifier.fillMaxWidth()) {
-                            labOptions.forEach { lab ->
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
-                                    Checkbox(
-                                        checked = selectedLabs.contains(lab),
-                                        onCheckedChange = { checked ->
-                                            selectedLabs = if (checked) selectedLabs + lab else selectedLabs - lab
-                                        }
-                                    )
-                                    Text(lab, style = MaterialTheme.typography.bodySmall)
-                                }
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Case: #${patientCase.patientId}") },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                             }
-                        }
-                        if (selectedLabs.contains("Other")) {
-                            OutlinedTextField(
-                                value = otherLabText,
-                                onValueChange = { otherLabText = it },
-                                label = { Text("Specify Other Lab Test") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-
-                    val treatmentOptions = listOf("Topical (cream/ointment)", "Systemic (oral medication)", "Intralesional Injection", "Cryotherapy (freezing)", "Combination (Topical and Systemic)", "Referral for Specialist Care", "Other")
-                    DropdownField("Treatment Type *", treatmentOptions, treatmentType, { 
-                        treatmentType = it 
-                        if (it != "Other") treatmentTypeOther = ""
-                    })
-                    
-                    if (treatmentType == "Other") {
-                        OutlinedTextField(
-                            value = treatmentTypeOther,
-                            onValueChange = { treatmentTypeOther = it },
-                            label = { Text("Specify Other Treatment") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    val dosageOptions = listOf("Sodium stibogluconate (SSG) 20 mg/kg IM/IV for 20 days", "Meglumine antimoniate (MA) 20 mg/kg IM/IV for 20 days", "Intralesional SSG (1–3 mL per lesion) every 3–7 days", "Paromomycin ointment 15% twice daily for 20 days", "Fluconazole 200 mg daily for 6 weeks", "Cryotherapy with liquid nitrogen (1–2 cycles) weekly", "Other")
-                    DropdownField("Dosage & Duration *", dosageOptions, dosageDuration, {
-                        dosageDuration = it
-                        if (it != "Other") dosageDurationOther = ""
-                    })
-
-                    if (dosageDuration == "Other") {
-                        OutlinedTextField(
-                            value = dosageDurationOther,
-                            onValueChange = { dosageDurationOther = it },
-                            label = { Text("Specify Other Dosage & Duration") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    
-                    val intervalOptions = listOf("30", "60", "90", "180", "None")
-                    DropdownField("Follow-up Interval (Days)", intervalOptions, followUpInterval, { followUpInterval = it })
-
-                    Text("Referral Needed?", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = referralNeeded, onClick = { referralNeeded = true })
-                        Text("Yes", modifier = Modifier.clickable { referralNeeded = true })
-                        Spacer(modifier = Modifier.width(16.dp))
-                        RadioButton(selected = !referralNeeded, onClick = { referralNeeded = false })
-                        Text("No", modifier = Modifier.clickable { referralNeeded = false })
-                    }
-                    
-                    if (referralNeeded) {
-                        OutlinedTextField(value = referralReason, onValueChange = { referralReason = it }, label = { Text("Reason for Referral *") }, modifier = Modifier.fillMaxWidth())
-                    }
-
-                    OutlinedTextField(value = feedback, onValueChange = { feedback = it }, label = { Text("Feedback to Health Worker") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (patientCase.status != "Pending") {
-                             OutlinedButton(onClick = { isReviewing = false }, modifier = Modifier.weight(1f)) {
-                                 Text("Cancel")
-                             }
-                        }
-                        Button(onClick = {
-                            val finalDiagnosis = if (diagnosis == "Other") diagnosisOther else diagnosis
-                            if (finalDiagnosis.isNotBlank()) {
-                                val finalTreatment = if (treatmentType == "Other") treatmentTypeOther else treatmentType
-                                val finalDosage = if (dosageDuration == "Other") dosageDurationOther else dosageDuration
-                                val finalLabs = if (labNeeded) {
-                                    val labs = selectedLabs.filter { it != "Other" }.toMutableList()
-                                    if (selectedLabs.contains("Other")) labs.add(otherLabText)
-                                    labs.joinToString(", ")
-                                } else ""
-
-                                viewModel.updateCaseReview(
-                                    userEmail, patientCase.docId, patientCase.patientId, 
-                                    diagnosis, if(diagnosis == "Other") diagnosisOther else null,
-                                    differentialDiagnosis, certainty, labNeeded, finalLabs, 
-                                    treatmentType, if(treatmentType == "Other") treatmentTypeOther else null,
-                                    dosageDuration, if(dosageDuration == "Other") dosageDurationOther else null,
-                                    followUpInterval, referralNeeded, referralReason, feedback
-                                ) { success, error ->
-                                    if (success) isReviewing = false
-                                    else errorDialogMessage = error ?: "Review update failed"
-                                }
-                            } else {
-                                Toast.makeText(context, "Diagnosis is required", Toast.LENGTH_SHORT).show()
-                            }
-                        }, modifier = Modifier.weight(1f)) { 
-                            Text("Submit Review") 
-                        }
-                    }
-                }
-
-                // Display all independent follow-ups
-                if (patientCase.followUps != null && patientCase.followUps!!.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("📈 Follow-up History", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
-                    patientCase.followUps!!.toSortedMap().forEach { (stage, data) ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("Stage: $stage", fontWeight = FontWeight.Bold)
-                                ResponseItem("Treatment Outcome", if(data["outcome"] == "Other") "Other: ${data["outcomeOther"] ?: ""}" else data["outcome"] ?: "")
-                                ResponseItem("Dermatologist Feedback", data["feedback"] ?: "Pending review...")
-                            }
-                        }
-                    }
-                }
-
-                if (patientCase.isUpdatePending) {
-                    Divider(modifier = Modifier.padding(vertical = 16.dp))
-                    Text("🔔 Provide Feedback for Latest Update", fontWeight = FontWeight.Bold, color = Color(0xFF3B82F6))
-                    ResponseItem("Current stage", patientCase.followUpStage ?: "N/A")
-                    ResponseItem("Reported outcome", if(patientCase.treatmentOutcome == "Other") "Other: ${patientCase.treatmentOutcomeOther ?: ""}" else patientCase.treatmentOutcome ?: "N/A")
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = updateFeedback,
-                        onValueChange = { updateFeedback = it },
-                        label = { Text("Dermatologist Feedback for Update") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(
-                        onClick = {
-                            if (updateFeedback.isNotBlank()) {
-                                viewModel.updateFollowUpFeedbackExtended(userEmail, patientCase.docId, patientCase.patientId, patientCase.followUpStage ?: "Unknown", updateFeedback) { success, error ->
-                                    if (success) onDismiss()
-                                    else errorDialogMessage = error ?: "Failed to send feedback"
+                        },
+                        actions = {
+                            if (!isReviewing && patientCase.status != "Pending") {
+                                IconButton(onClick = { isReviewing = true }) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit Review")
                                 }
                             }
                         },
-                        modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
-                    ) { Text("Submit Follow-up Feedback") }
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                            actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .padding(paddingValues)
+                        .fillMaxSize()
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text("🏥 Facility Information", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Facility", "${patientCase.facility} (${patientCase.facilityType})")
+                    ResponseItem("HW Type", patientCase.healthWorkerType)
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("👤 Patient Details", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Patient", "${patientCase.age} ${patientCase.ageUnit}, ${patientCase.sex}")
+                    ResponseItem("Location", patientCase.residence)
+                    ResponseItem("Region/Zone", "${patientCase.region} / ${patientCase.zone}")
+                    ResponseItem("Woreda/Kebele", "${patientCase.woreda} / ${patientCase.kebele}")
+                    ResponseItem("Phone", patientCase.phoneNumber)
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🔍 Clinical History", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                    ResponseItem("Symptoms", patientCase.associatedSymptoms)
+                    ResponseItem("Exposure", patientCase.exposureHistory)
+                    ResponseItem("Lesion Type", if (patientCase.lesionType == "Other") "Other: ${patientCase.lesionTypeOther ?: ""}" else patientCase.lesionType)
+                    ResponseItem("Lesion Count", patientCase.numLesions)
+                    ResponseItem("Lesion Location", if (patientCase.lesionLocation.contains("Other")) "${patientCase.lesionLocation} (${patientCase.lesionLocationOther ?: ""})" else patientCase.lesionLocation)
+                    ResponseItem("Lesion Size", "${patientCase.lesionSize} cm")
+                    ResponseItem("Duration", patientCase.lesionDuration)
+                    ResponseItem("Itching/Pain", patientCase.painLevel)
+                    ResponseItem("Prev Treatment", if (patientCase.prevTreatment == "Other") "Other: ${patientCase.prevTreatmentOther ?: ""}" else patientCase.prevTreatment)
+                    ResponseItem("Comorbidities", patientCase.comorbidities)
+                    ResponseItem("Notes", patientCase.additionalNotes)
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🖼️ Images (Click to enlarge)", fontWeight = FontWeight.Bold)
+                    if (patientCase.images.isNotEmpty()) {
+                        val imageUrls = patientCase.images.split(",")
+                        LazyRow(modifier = Modifier.height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(imageUrls) { url ->
+                                Image(
+                                    painter = rememberAsyncImagePainter(url),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(100.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { enlargedImageUri = url }
+                                        .background(Color.LightGray),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+                    
+                    if (!isReviewing) {
+                        Text("🩺 Review Summary (Read-Only)", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                        ResponseItem("Diagnosis", if (diagnosis == "Other") "Other: ${patientCase.diagnosisOther ?: ""}" else diagnosis)
+                        ResponseItem("Diff. Diagnosis", differentialDiagnosis.takeIf { it.isNotBlank() } ?: "N/A")
+                        ResponseItem("Certainty", certainty)
+                        ResponseItem("Lab Needed", if(labNeeded) "Yes: ${patientCase.labTests ?: ""}" else "No")
+                        ResponseItem("Treatment", if (treatmentType == "Other") "Other: ${patientCase.treatmentTypeOther ?: ""}" else treatmentType)
+                        ResponseItem("Dosage", if (dosageDuration == "Other") "Other: ${patientCase.dosageDurationOther ?: ""}" else dosageDuration.takeIf { it.isNotBlank() } ?: "N/A")
+                        ResponseItem("Follow-up", "$followUpInterval days")
+                        ResponseItem("Referral", if(referralNeeded) "Yes: ${patientCase.referralReason ?: ""}" else "No")
+                        ResponseItem("Feedback", feedback.takeIf { it.isNotBlank() } ?: "N/A")
+                    } else {
+                        Text("🩺 Clinical Decision (Editing Mode)", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                        
+                        val diagnosisOptions = listOf("Cutaneous Leishmaniasis (CL)", "Eczema", "Psoriasis", "Fungal Infection", "Bacterial Infection", "Viral Infection", "Scabies", "Other")
+                        DropdownField("Primary Diagnosis Choice *", diagnosisOptions, diagnosis, { 
+                            diagnosis = it 
+                            if (it != "Other") diagnosisOther = ""
+                        })
+
+                        if (diagnosis == "Other") {
+                            OutlinedTextField(
+                                value = diagnosisOther,
+                                onValueChange = { diagnosisOther = it },
+                                label = { Text("Specify Other Diagnosis") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = differentialDiagnosis, 
+                            onValueChange = { differentialDiagnosis = it }, 
+                            label = { Text("Differential Diagnoses") },
+                            placeholder = { Text("e.g., Sporotrichosis, Wart") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        
+                        DropdownField("Diagnostic Certainty *", listOf("Low", "Moderate", "High"), certainty, { certainty = it })
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Lab Confirmation Needed", style = MaterialTheme.typography.labelLarge)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = labNeeded, onClick = { labNeeded = true })
+                            Text("Yes", modifier = Modifier.clickable { labNeeded = true })
+                            Spacer(modifier = Modifier.width(16.dp))
+                            RadioButton(selected = !labNeeded, onClick = { labNeeded = false })
+                            Text("No", modifier = Modifier.clickable { labNeeded = false })
+                        }
+                        
+                        if (labNeeded) {
+                            Text("Select Lab Tests", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                            FlowRow(modifier = Modifier.fillMaxWidth()) {
+                                labOptions.forEach { lab ->
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+                                        Checkbox(
+                                            checked = selectedLabs.contains(lab),
+                                            onCheckedChange = { checked ->
+                                                selectedLabs = if (checked) selectedLabs + lab else selectedLabs - lab
+                                            }
+                                        )
+                                        Text(lab, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                            if (selectedLabs.contains("Other")) {
+                                OutlinedTextField(
+                                    value = otherLabText,
+                                    onValueChange = { otherLabText = it },
+                                    label = { Text("Specify Other Lab Test") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        val treatmentOptions = listOf("Topical (cream/ointment)", "Systemic (oral medication)", "Intralesional Injection", "Cryotherapy (freezing)", "Combination (Topical and Systemic)", "Referral for Specialist Care", "Other")
+                        DropdownField("Treatment Type *", treatmentOptions, treatmentType, { 
+                            treatmentType = it 
+                            if (it != "Other") treatmentTypeOther = ""
+                        })
+                        
+                        if (treatmentType == "Other") {
+                            OutlinedTextField(
+                                value = treatmentTypeOther,
+                                onValueChange = { treatmentTypeOther = it },
+                                label = { Text("Specify Other Treatment") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        val dosageOptions = listOf("Sodium stibogluconate (SSG) 20 mg/kg IM/IV for 20 days", "Meglumine antimoniate (MA) 20 mg/kg IM/IV for 20 days", "Intralesional SSG (1–3 mL per lesion) every 3–7 days", "Paromomycin ointment 15% twice daily for 20 days", "Fluconazole 200 mg daily for 6 weeks", "Cryotherapy with liquid nitrogen (1–2 cycles) weekly", "Other")
+                        DropdownField("Dosage & Duration *", dosageOptions, dosageDuration, {
+                            dosageDuration = it
+                            if (it != "Other") dosageDurationOther = ""
+                        })
+
+                        if (dosageDuration == "Other") {
+                            OutlinedTextField(
+                                value = dosageDurationOther,
+                                onValueChange = { dosageDurationOther = it },
+                                label = { Text("Specify Other Dosage & Duration") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        
+                        val intervalOptions = listOf("30", "60", "90", "180", "None")
+                        DropdownField("Follow-up Interval (Days)", intervalOptions, followUpInterval, { followUpInterval = it })
+
+                        Text("Referral Needed?", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = referralNeeded, onClick = { referralNeeded = true })
+                            Text("Yes", modifier = Modifier.clickable { referralNeeded = true })
+                            Spacer(modifier = Modifier.width(16.dp))
+                            RadioButton(selected = !referralNeeded, onClick = { referralNeeded = false })
+                            Text("No", modifier = Modifier.clickable { referralNeeded = false })
+                        }
+                        
+                        if (referralNeeded) {
+                            OutlinedTextField(value = referralReason, onValueChange = { referralReason = it }, label = { Text("Reason for Referral *") }, modifier = Modifier.fillMaxWidth())
+                        }
+
+                        OutlinedTextField(value = feedback, onValueChange = { feedback = it }, label = { Text("Feedback to Health Worker") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (patientCase.status != "Pending") {
+                                 OutlinedButton(onClick = { isReviewing = false }, modifier = Modifier.weight(1f)) {
+                                     Text("Cancel")
+                                 }
+                            }
+                            Button(onClick = {
+                                val finalDiagnosis = if (diagnosis == "Other") diagnosisOther else diagnosis
+                                if (finalDiagnosis.isNotBlank()) {
+                                    val finalTreatment = if (treatmentType == "Other") treatmentTypeOther else treatmentType
+                                    val finalDosage = if (dosageDuration == "Other") dosageDurationOther else dosageDuration
+                                    val finalLabs = if (labNeeded) {
+                                        val labs = selectedLabs.filter { it != "Other" }.toMutableList()
+                                        if (selectedLabs.contains("Other")) labs.add(otherLabText)
+                                        labs.joinToString(", ")
+                                    } else ""
+
+                                    viewModel.updateCaseReview(
+                                        userEmail, patientCase.docId, patientCase.patientId, 
+                                        diagnosis, if(diagnosis == "Other") diagnosisOther else null,
+                                        differentialDiagnosis, certainty, labNeeded, finalLabs, 
+                                        treatmentType, if(treatmentType == "Other") treatmentTypeOther else null,
+                                        dosageDuration, if(dosageDuration == "Other") dosageDurationOther else null,
+                                        followUpInterval, referralNeeded, referralReason, feedback
+                                    ) { success, error ->
+                                        if (success) isReviewing = false
+                                        else errorDialogMessage = error ?: "Review update failed"
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Diagnosis is required", Toast.LENGTH_SHORT).show()
+                                }
+                            }, modifier = Modifier.weight(1f)) { 
+                                Text("Submit Review") 
+                            }
+                        }
+                    }
+
+                    // Display all independent follow-ups
+                    if (patientCase.followUps != null && patientCase.followUps!!.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text("📈 Follow-up History", fontWeight = FontWeight.Bold, color = Color(0xFF208090))
+                        patientCase.followUps!!.toSortedMap().forEach { (stage, data) ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text("Stage: $stage", fontWeight = FontWeight.Bold)
+                                    ResponseItem("Treatment Outcome", if(data["outcome"] == "Other") "Other: ${data["outcomeOther"] ?: ""}" else data["outcome"] ?: "")
+                                    ResponseItem("Dermatologist Feedback", data["feedback"] ?: "Pending review...")
+                                }
+                            }
+                        }
+                    }
+
+                    if (patientCase.isUpdatePending) {
+                        Divider(modifier = Modifier.padding(vertical = 16.dp))
+                        Text("🔔 Provide Feedback for Latest Update", fontWeight = FontWeight.Bold, color = Color(0xFF3B82F6))
+                        ResponseItem("Current stage", patientCase.followUpStage ?: "N/A")
+                        ResponseItem("Reported outcome", if(patientCase.treatmentOutcome == "Other") "Other: ${patientCase.treatmentOutcomeOther ?: ""}" else patientCase.treatmentOutcome ?: "N/A")
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = updateFeedback,
+                            onValueChange = { updateFeedback = it },
+                            label = { Text("Dermatologist Feedback for Update") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = {
+                                if (updateFeedback.isNotBlank()) {
+                                    viewModel.updateFollowUpFeedbackExtended(userEmail, patientCase.docId, patientCase.patientId, patientCase.followUpStage ?: "Unknown", updateFeedback) { success, error ->
+                                        if (success) onDismiss()
+                                        else errorDialogMessage = error ?: "Failed to send feedback"
+                                    }
+                                }
+                            },
+                            modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
+                        ) { Text("Submit Follow-up Feedback") }
+                    }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
         }
-    )
+    }
 }
